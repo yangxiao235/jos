@@ -28,12 +28,16 @@
  *
  *  * bootmain() in this file takes over, reads in the kernel and jumps to it.
  **********************************************************************/
-
+#define USE_XYY_IMPL
 #define SECTSIZE	512
 #define ELFHDR		((struct Elf *) 0x10000) // scratch space
 
 void readsect(void*, uint32_t);
 void readseg(uint32_t, uint32_t, uint32_t);
+
+#if defined(USE_XYY_IMPL)
+void xyy_readseg(uint32_t, uint32_t, uint32_t);
+#endif
 
 void
 bootmain(void)
@@ -53,8 +57,11 @@ bootmain(void)
 	for (; ph < eph; ph++)
 		// p_pa is the load address of this segment (as well
 		// as the physical address)
-		readseg(ph->p_pa, ph->p_memsz, ph->p_offset);
-
+#if defined(USE_XYY_IMPL)
+		xyy_readseg(ph->p_pa, ph->p_memsz, ph->p_offset);
+#else
+		readseg(ph->p_pa, ph->p_memsz, ph->p_offset);  // 此处将p_offset转换为sector, 1+ (p_offset / SECTOR_SIZE)
+#endif
 	// call the entry point from the ELF header
 	// note: does not return!
 	((void (*)(void)) (ELFHDR->e_entry))();
@@ -64,6 +71,19 @@ bad:
 	outw(0x8A00, 0x8E00);
 	while (1)
 		/* do nothing */;
+}
+
+void xyy_readseg(uint32_t addr, uint32_t size, uint32_t elf_offset)
+{
+	uint32_t end = addr + size;
+	uint32_t sector = 1 + (elf_offset / SECTSIZE);
+	addr &= ~(SECTSIZE - 1); // 按照512字节对齐, 前面部分也是可以覆盖的
+
+	while (addr < end) {
+		readsect((void *)addr, sector);
+		addr += SECTSIZE;
+		sector++;
+	}
 }
 
 // Read 'count' bytes at 'offset' from kernel into physical address 'pa'.
