@@ -23,11 +23,11 @@ struct Elf {
 
 struct Proghdr {
 	uint32_t p_type;
-	uint32_t p_offset;
+	uint32_t p_offset; // 段在文件中的偏移
 	uint32_t p_va;
-	uint32_t p_pa;
+	uint32_t p_pa;     // 段在内存中的起始地址
 	uint32_t p_filesz;
-	uint32_t p_memsz;
+	uint32_t p_memsz;  // 段长度
 	uint32_t p_flags;
 	uint32_t p_align;
 };

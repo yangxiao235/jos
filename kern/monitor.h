@@ -4,7 +4,11 @@
 # error "This is a JOS kernel header; user programs should not #include it"
 #endif
 
-struct Trapframe;
+struct Trapframe {
+    unsigned eip;
+    unsigned ebp;
+    unsigned args[5];
+};
 
 // Activate the kernel monitor,
 // optionally providing a trap frame indicating the current state
