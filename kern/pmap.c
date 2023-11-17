@@ -208,7 +208,6 @@ mem_init(void)
 	check_page_free_list(1);
 	check_page_alloc();
 	panic("mem_init: This function is not finished\n");
-	check_page_alloc();
 	check_page();
 
 	//////////////////////////////////////////////////////////////////////
@@ -302,7 +301,6 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	size_t i;
-	uint32_t paddr;
 	uint32_t npages_struct_start =  PADDR(ROUNDUP((char *)end, PGSIZE))>>PGSHIFT;
 	uint32_t npages_struct_end = PADDR(boot_alloc(0))>>PGSHIFT;
 	cprintf("<4>page_int: struct_start 0x%x, struct_end 0x%x\n", npages_struct_start, npages_struct_end);
@@ -402,7 +400,34 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	return NULL;
+	pde_t *pde = pgdir + PDX(va);
+	pte_t *table = NULL;
+	if (*pde & PTE_P) {
+		table = KADDR(PTE_ADDR(*pde));
+		if (table[PTX(va)] & PTE_P) {
+			return table + PTX(va);
+		}
+	}
+	if (!create) {
+		return NULL;
+	}
+	// need to alloc page table
+	if (!table) {
+		struct Page *table_page = page_alloc(ALLOC_ZERO);
+		struct Page *frame_page = page_alloc(0);
+		if (!table_page || !frame_page) {
+			if (table_page) page_free(table_page);
+			if (frame_page) page_free(frame_page);
+			return NULL;
+		}
+		*pde = (*pde & ~PTE_ADDR_MASK) | (page2pa(table_page) & PTE_ADDR_MASK);
+		*pde |= PTE_W|PTE_P;
+		table = (pte_t *)page2kva(table_page);
+		table[PTX(va)] = (page2pa(frame_page) & PTE_ADDR_MASK);
+		table[PTX(va)] |= PTE_W|PTE_P;
+	}
+
+	return table + PTX(va);
 }
 
 //
