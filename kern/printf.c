@@ -5,6 +5,7 @@
 #include <inc/stdio.h>
 #include <inc/stdarg.h>
 
+static int loglevel = '5';
 
 static void
 putch(int ch, int *cnt)
@@ -28,6 +29,9 @@ cprintf(const char *fmt, ...)
 	va_list ap;
 	int cnt;
 
+	if (fmt[0] == '<' && fmt[1] >= loglevel) {
+		return 0;
+	}
 	va_start(ap, fmt);
 	cnt = vcprintf(fmt, ap);
 	va_end(ap);
