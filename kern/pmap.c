@@ -207,8 +207,8 @@ mem_init(void)
 
 	check_page_free_list(1);
 	check_page_alloc();
-	panic("mem_init: This function is not finished\n");
 	check_page();
+	panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// Now we set up virtual memory
@@ -385,7 +385,8 @@ page_decref(struct Page* pp)
 //    - Otherwise, the new page's reference count is incremented,
 //	the page is cleared,
 //	and pgdir_walk returns a pointer into the new page table page.
-//
+//					-------------------------------------------^
+//                 注释有误导, 应该是返回指向pte_t的指针, 而不是table的基地址
 // Hint 1: you can turn a Page * into the physical address of the
 // page it refers to with page2pa() from kern/pmap.h.
 //
@@ -396,6 +397,7 @@ page_decref(struct Page* pp)
 // Hint 3: look at inc/mmu.h for useful macros that mainipulate page
 // table and page directory entries.
 //
+// 
 pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
@@ -404,29 +406,20 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	pte_t *table = NULL;
 	if (*pde & PTE_P) {
 		table = KADDR(PTE_ADDR(*pde));
-		if (table[PTX(va)] & PTE_P) {
-			return table + PTX(va);
-		}
+		return table + PTX(va);
 	}
 	if (!create) {
 		return NULL;
 	}
 	// need to alloc page table
-	if (!table) {
-		struct Page *table_page = page_alloc(ALLOC_ZERO);
-		struct Page *frame_page = page_alloc(0);
-		if (!table_page || !frame_page) {
-			if (table_page) page_free(table_page);
-			if (frame_page) page_free(frame_page);
-			return NULL;
-		}
-		*pde = (*pde & ~PTE_ADDR_MASK) | (page2pa(table_page) & PTE_ADDR_MASK);
-		*pde |= PTE_W|PTE_P;
-		table = (pte_t *)page2kva(table_page);
-		table[PTX(va)] = (page2pa(frame_page) & PTE_ADDR_MASK);
-		table[PTX(va)] |= PTE_W|PTE_P;
+	struct Page *table_page = page_alloc(ALLOC_ZERO);
+	if (!table_page) {
+		return NULL;
 	}
-
+	table_page->pp_ref += 1;
+	PTE_MAP_ADDR(*pde, page2pa(table_page));
+	*pde |= PTE_U | PTE_P;
+	table = (pte_t *)page2kva(table_page);
 	return table + PTX(va);
 }
 
@@ -443,7 +436,13 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
-	// Fill this function in
+	for (size_t offset = 0; offset < size; offset+=PGSIZE) {
+		pte_t *pgtable = pgdir_walk(pgdir, (char *)va + offset, 1);
+		assert(pgtable);
+		// set pte pointing to the [pa, pa+size) range
+		PTE_MAP_ADDR(pgtable[PTX(va + offset)], pa + offset);
+		pgtable[PTX(va + offset)] |= ~PTE_ADDR_MASK & (perm|PTE_P);
+	}
 }
 
 //
@@ -474,6 +473,15 @@ int
 page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)
 {
 	// Fill this function in
+	++pp->pp_ref;
+	page_remove(pgdir, va);
+    pte_t *ptep = pgdir_walk(pgdir, va, 1);
+	if (!ptep) {
+		--pp->pp_ref;
+		return -E_NO_MEM;
+	}
+	PTE_MAP_ADDR(*ptep, page2pa(pp));
+	*ptep = (*ptep & ~0xfff) | (perm | PTE_P);
 	return 0;
 }
 
@@ -492,7 +500,21 @@ struct Page *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	return NULL;
+	struct Page * result = NULL;
+	pde_t dentry = pgdir[PDX(va)];
+	if (!(dentry & PTE_P)) {
+		return result;
+	}
+	pte_t *table = KADDR(PTE_ADDR(dentry));
+	pte_t *tentry = table + PTX(va);
+	if (!(*tentry & PTE_P)) {
+		return result;
+	}
+	result = pa2page(PTE_ADDR(*tentry));
+	if (pte_store) {
+		*pte_store = tentry;
+	}
+	return result;
 }
 
 //
@@ -514,6 +536,15 @@ void
 page_remove(pde_t *pgdir, void *va)
 {
 	// Fill this function in
+	struct Page *pp;
+	pte_t *pte = NULL;
+	pp = page_lookup(pgdir, va, &pte);
+	if (pp) {
+		assert(pp->pp_ref);
+		page_decref(pp);
+		*pte &= ~PTE_P;
+		tlb_invalidate(pgdir, va);
+	}
 }
 
 //
