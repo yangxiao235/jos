@@ -33,12 +33,12 @@
  *                     |   Remapped Physical Memory   | RW/--
  *                     |                              | RW/--
  *    KERNBASE ----->  +------------------------------+ 0xf0000000
- *                     |       Empty Memory (*)       | --/--  PTSIZE
+ *                     |       Empty Memory (*)       | --/--  PTSIZE(4MB)
  *    KSTACKTOP ---->  +------------------------------+ 0xefc00000      --+
  *                     |         Kernel Stack         | RW/--  KSTKSIZE   |
- *                     | - - - - - - - - - - - - - - -|                 PTSIZE
+ *                     | - - - - - - - - - - - - - - -|                 PTSIZE(4MB)
  *                     |      Invalid Memory (*)      | --/--             |
- *    ULIM     ------> +------------------------------+ 0xef800000      --+
+ *    ULIM     ------> +------------------------------+ 0xef800000      --+ (0xf0000000 - 0xef800000 = 8MB)
  *                     |  Cur. Page Table (User R-)   | R-/R-  PTSIZE
  *    UVPT      ---->  +------------------------------+ 0xef400000
  *                     |          RO PAGES            | R-/R-  PTSIZE

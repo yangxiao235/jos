@@ -208,7 +208,6 @@ mem_init(void)
 	check_page_free_list(1);
 	check_page_alloc();
 	check_page();
-	panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// Now we set up virtual memory
@@ -220,7 +219,15 @@ mem_init(void)
 	//      (ie. perm = PTE_U | PTE_P)
 	//    - pages itself -- kernel RW, user NONE
 	// Your code goes here:
-
+	int ret;
+	unsigned section_pages = ROUNDUP(sizeof(struct Page)*npages, PGSIZE)>>PGSHIFT;
+	void *va = (void *)UPAGES;
+	physaddr_t pa = PADDR(ROUNDDOWN(pages, PGSIZE));
+	for (unsigned i = 0; i < section_pages; ++i, va+=PGSIZE, pa+=PGSIZE) {
+		struct Page *pp = pa2page(pa);
+		ret = page_insert(kern_pgdir, pp, va, PTE_W);
+		assert(!ret);
+	}
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
 	// stack.  The kernel stack grows down from virtual address KSTACKTOP.
@@ -232,7 +239,22 @@ mem_init(void)
 	//       overwrite memory.  Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	section_pages = PTSIZE>>PGSHIFT;
+	va = (void *)(KSTACKTOP-PTSIZE);
+	pa = PADDR(bootstack);
+	unsigned backed_end = (PTSIZE - KSTKSIZE)>>PGSHIFT;
+	for (unsigned i = 0; i < section_pages; ++i, va+=PGSIZE) {
+		if (i >= backed_end) {
+			struct Page *pp = pa2page(pa);
+			ret = page_insert(kern_pgdir, pp, va, 0);
+			assert(!ret);
+			pa+=PGSIZE;
+		} else {
+			// backed memory not exist
+			pte_t *ptep = pgdir_walk(kern_pgdir, va, 1);
+			*ptep &= ~PTE_P;
+		}
+	}
 	//////////////////////////////////////////////////////////////////////
 	// Map all of physical memory at KERNBASE.
 	// Ie.  the VA range [KERNBASE, 2^32) should map to
@@ -241,9 +263,24 @@ mem_init(void)
 	// we just set up the mapping anyway.
 	// Permissions: kernel RW, user NONE
 	// Your code goes here:
-
+	section_pages = ((4UL<<30) - KERNBASE)>>PGSHIFT;
+	va = (void *)KERNBASE;
+	pa = 0;
+	for (unsigned i = 0; i < section_pages; ++i, va+=PGSIZE, pa+=PGSIZE) {
+		if ((pa>>PGSHIFT) < npages) {
+			struct Page *pp = pa2page(pa);
+			int ret;
+			ret = page_insert(kern_pgdir, pp, va, PTE_W);
+			assert(!ret);
+		} else {
+			pte_t *ptep = pgdir_walk(kern_pgdir, va, 1);
+			assert(ptep);
+			*ptep = (*ptep & ~PTE_P);
+		}
+	}
 	// Check that the initial page directory has been set up correctly.
 	check_kern_pgdir();
+	panic("mem_init: This function is not finished\n");
 
 	// Switch from the minimal entry page directory to the full kern_pgdir
 	// page table we just created.	Our instruction pointer should be
@@ -418,7 +455,7 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 	}
 	table_page->pp_ref += 1;
 	PTE_MAP_ADDR(*pde, page2pa(table_page));
-	*pde |= PTE_U | PTE_P;
+	*pde |= (PTE_U | PTE_W | PTE_P);
 	table = (pte_t *)page2kva(table_page);
 	return table + PTX(va);
 }
@@ -472,6 +509,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 int
 page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)
 {
+	assert(pp);
 	// Fill this function in
 	++pp->pp_ref;
 	page_remove(pgdir, va);
@@ -729,8 +767,11 @@ check_kern_pgdir(void)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
 	// check kernel stack
-	for (i = 0; i < KSTKSIZE; i += PGSIZE)
-		assert(check_va2pa(pgdir, KSTACKTOP - KSTKSIZE + i) == PADDR(bootstack) + i);
+	for (i = 0; i < KSTKSIZE; i += PGSIZE) {
+		physaddr_t pa = check_va2pa(pgdir, KSTACKTOP - KSTKSIZE + i);
+		assert(pa == PADDR(bootstack) + i);
+	}
+
 	assert(check_va2pa(pgdir, KSTACKTOP - PTSIZE) == ~0);
 
 	// check PDE permissions
