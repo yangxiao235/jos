@@ -48,6 +48,9 @@
 #define PGSIZE		4096		// bytes mapped by a page
 #define PGSHIFT		12		// log2(PGSIZE)
 
+#define PSE_PGSIZE  (4u<<20)
+#define PSE_PGSHIFT  22
+
 #define PTSIZE		(PGSIZE*NPTENTRIES) // bytes mapped by a page directory entry
 #define PTSHIFT		22		// log2(PTSIZE)
 
@@ -73,7 +76,7 @@
 #define PTE_SYSCALL	(PTE_AVAIL | PTE_P | PTE_W | PTE_U)
 
 // Address in page table or page directory entry
-#define PTE_ADDR(pte)	((physaddr_t) (pte) & ~0xFFF)
+#define PTE_BASE(pte)	((physaddr_t) (pte) & ~0xFFF)
 #define PTE_ADDR_MASK   (~((1UL<<PTXSHIFT)-1))
 #define PTE_MAP_ADDR(pte, paddr) (pte) = (((pte) & ~PTE_ADDR_MASK) | ((paddr) & PTE_ADDR_MASK))
 // Control Register flags

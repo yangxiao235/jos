@@ -62,10 +62,22 @@ void	page_decref(struct Page *pp);
 void	tlb_invalidate(pde_t *pgdir, void *va);
 pte_t  *pgdir_walk(pde_t *pgdir, const void *va, int create);
 
+int pse_page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm);
+void pse_page_remove(pde_t *pgdir, void *va);
+pde_t *pse_pgdir_walk(pde_t *pgdir, void *va);
+
 static inline physaddr_t
 page2pa(struct Page *pp)
 {
 	return (pp - pages) << PGSHIFT;
+}
+
+static inline struct Page * 
+pse_pa2page(physaddr_t pa) 
+{
+	if (PGNUM(pa + PSE_PGSIZE) >= npages) 
+		panic("pse_pa2page called with invalid pa");
+	return &pages[PGNUM(pa)];
 }
 
 static inline struct Page*
