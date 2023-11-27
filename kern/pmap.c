@@ -309,7 +309,6 @@ mem_init(void)
 
 	// Some more checks, only possible after kern_pgdir is installed.
 	check_page_installed_pgdir();
-	panic("mem_init: This function is not finished\n");
 }
 
 // --------------------------------------------------------------
