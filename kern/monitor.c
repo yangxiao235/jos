@@ -94,25 +94,26 @@ mon_pagetable(int argc, char **argv, struct Trapframe *tf)
 {
 	extern pde_t *kern_pgdir;
 	pde_t *pde;
-	int start_pdx = 0, end_pdx = 1023;
-	int start_ptx = 0, end_ptx = 0;
+	int start_pdx = 0, end_pdx = 1024;
+	int start_ptx = 0, end_ptx = 1024;
 	void *start_virt = 0, *end_virt = 0;
 	int detail = 0;
 	pte_t *pte;
+	pte_t *pte_base;
 	char *arg;
 	while (argc-- > 0) {
 		arg = *argv++;
 		if (!strncmp(arg, "-d", 2) && argc >= 2) {
 			start_pdx = atoi(argv[0]);
 			end_pdx = atoi(argv[1]);
-			end_pdx = end_pdx < 1024 ? end_pdx : 1023;
+			end_pdx = end_pdx < 1024 ? end_pdx : 1024;
 			argc -= 2;
 			argv += 2;
 		}
 		if (!strncmp(arg, "-t", 2) && argc >= 2) {
 			start_ptx = atoi(argv[0]);
 			end_ptx = atoi(argv[1]);
-			end_ptx = end_ptx < 1024 ? end_ptx : 1023;
+			end_ptx = end_ptx < 1024 ? end_ptx : 1024;
 			argc -= 2;
 			argv += 2;
 		}
@@ -133,12 +134,13 @@ mon_pagetable(int argc, char **argv, struct Trapframe *tf)
 		end_ptx = PTX(end_virt);
 	}
 	assert(start_pdx >= 0 && start_pdx < 1024);
-	assert(end_pdx >= 0 && end_pdx < 1024);
+	assert(end_pdx >= 0 && end_pdx <= 1024);
 	assert(start_ptx >= 0 && start_ptx < 1024);
-	assert(end_ptx >= 0 && end_ptx < 1024);
+	assert(end_ptx >= 0 && end_ptx <= 1024);
 
 	cprintf("Page Directory Base: 0x%x\n", kern_pgdir);
-	for (int i = start_pdx; i <= end_pdx; ++i) {
+	int cur_end_ptx;
+	for (int i = start_pdx; i < end_pdx; ++i) {
 		pde = kern_pgdir + i;
 		if (!detail && !(*pde & PTE_P)) {
 			continue;
@@ -151,11 +153,17 @@ mon_pagetable(int argc, char **argv, struct Trapframe *tf)
 			EXPR_TO_BOOL(*pde&PTE_W), 
 			EXPR_TO_BOOL(*pde&PTE_U), 
 			EXPR_TO_BOOL(*pde&PTE_PS));
+
 		if (*pde&PTE_PS) {
 			continue;
 		}
-		pte = KADDR(PTE_BASE(*pde));
-		for (int it = start_ptx; it < end_ptx; ++it) {
+		pte_base = KADDR(PTE_BASE(*pde));
+		cur_end_ptx = (i == end_pdx) ? end_pdx : 1024;
+		for (int it = start_ptx; it < cur_end_ptx; ++it) {
+			pte = pte_base + it;
+			if (!detail && !(*pte & PTE_P)) {
+				continue;
+			}
 			cprintf("    entry[%04d]: virtual(0x%08x), frame-base(0x%08x), P-W-U(%d-%d-%d)\n", 
 				it,
 				(i<<PDXSHIFT) + (it<<PTXSHIFT), 
@@ -164,6 +172,7 @@ mon_pagetable(int argc, char **argv, struct Trapframe *tf)
 				EXPR_TO_BOOL(*pte&PTE_W), 
 				EXPR_TO_BOOL(*pte&PTE_U));
 		}
+		start_ptx = 0;
 	}
 	return 0;
 }

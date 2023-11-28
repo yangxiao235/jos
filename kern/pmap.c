@@ -227,7 +227,7 @@ mem_init(void)
 	physaddr_t pa = PADDR(ROUNDDOWN(pages, PGSIZE));
 	for (unsigned i = 0; i < section_pages; ++i, va+=PGSIZE, pa+=PGSIZE) {
 		struct Page *pp = pa2page(pa);
-		ret = page_insert(kern_pgdir, pp, va, PTE_W);
+		ret = page_insert(kern_pgdir, pp, va, PTE_U);
 		assert(!ret);
 	}
 	//////////////////////////////////////////////////////////////////////
@@ -244,9 +244,9 @@ mem_init(void)
 	section_pages = PTSIZE>>PGSHIFT;
 	va = (void *)(KSTACKTOP-PTSIZE);
 	pa = PADDR(bootstack);
-	unsigned backed_end = (PTSIZE - KSTKSIZE)>>PGSHIFT;
+	unsigned idx_backed_end = (PTSIZE - KSTKSIZE)>>PGSHIFT;
 	for (unsigned i = 0; i < section_pages; ++i, va+=PGSIZE) {
-		if (i >= backed_end) {
+		if (i >= idx_backed_end) {
 			struct Page *pp = pa2page(pa);
 			ret = page_insert(kern_pgdir, pp, va, 0);
 			assert(!ret);
