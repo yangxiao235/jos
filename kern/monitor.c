@@ -25,8 +25,21 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
-	{ "pgtable", "Display page table information", mon_pagetable},
-	{ "showmappings", "Dsiplay virtual adress mapping information", mon_showmappings}
+	{ "pgtable", "Display page table information. \n"
+		"\tUsage: pgtable [-d <pdx_start> <pgx_end>] [-t <ptx_start> <ptx_end>] [ -r <va_start> <va_end>] [-v]\n"
+		"\t-d, -t  list page entries by idx\n"
+		"\t-r      list page entries by virtual address range\n"
+		"\t-v      by default, pgtable will ignore entries not present, using it to show the ignored entries", mon_pagetable},
+	{ "showmappings", "Dsiplay virtual adress mapping information\n"
+		"\tUsage: showmappings [<va> ...]"
+		, mon_showmappings},
+	{ "chgmapping", "Change the permissions of any mappings\n" 
+		"\tUsage: chgmapping [-s|-c] <va> [<perm>]",
+		mon_chgmapping},
+	{ "dumppgstru", "Dump the contents of the page structure", mon_dumppgstru},
+	{ "dumppmem", "Dump the contents of memory which specified by physical address", mon_dumppmem},
+	{ "dumpvmem", "Dump the contents of memory which specified by virtual address", mon_dumpvmem},
+	{ "setmem", "Set memory contents", mon_setmem},
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -194,7 +207,7 @@ mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 	for (int i = 0; i < argc; ++i) {
 		cprintf("Virtual Address 0x%08x mapping\n", virt_addr[i]);
 		pde_t *p_pde = kern_pgdir + PDX(virt_addr[i]);
-		if (!(*p_pde & PTE_P)) {
+		if (!(*p_pde & PTE_PS) && !(*p_pde & PTE_P)) {
 			cprintf("    None\n");
 			continue;
 		}
@@ -219,7 +232,145 @@ mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
+int mon_chgmapping(int argc, char **argv, struct Trapframe *tf)
+{
+	int set_perm = 0;
+	int perm = 0;
+	void *va = NULL;
+	if (argc < 2) {
+		return -1;
+	}
+	if (!(strncmp(argv[1], "-c", 2)) && argc >= 3) {
+		set_perm = 0;
+	} else if (!(strncmp(argv[1], "-s", 2)) && argc >= 4) {
+		set_perm = 1;
+	} else {
+		return -1;
+	}
+	va = (void *)(uint32_t)strtol(argv[2], NULL, 16);
+	if (set_perm) {
+		perm = strtol(argv[3], NULL, 16);
+	}
+	pde_t *pde = &kern_pgdir[PDX(va)];
+	if (*pde & PTE_PS) {
+		if (set_perm) {
+			*pde |= perm;
+		} else {
+			*pde &= ~0x7;
+		}
+		return 0;
+	}
+	if (!(*pde & PTE_P)) {
+		cprintf("page directory entry of 0x%x not present\n", va);
+		return 0;
+	}
+	pte_t *pte = &((pte_t *)KADDR(PTE_BASE(*pde)))[PTX(va)];
+	if (set_perm) {
+		*pte |= perm;
+	} else {
+		*pte &= ~0x7;
+	}
+	// fixme: 是否要刷新tlb?
+	tlbflush();
+	return 0;
+}
+int mon_dumppgstru(int argc, char **argv, struct Trapframe *tf)
+{
+	uint32_t start = 0;
+	uint32_t end = npages;
+	if (argc >= 3) {
+		start = strtol(argv[1], NULL, 16);
+		end = strtol(argv[2], NULL, 16);
+	}
+	if (start >= end) {
+		cprintf("error: invalid args\n");
+		return 0;
+	}
+	cprintf("page struct base: 0x%x\n", pages);
+	int cols = 16;
+	cprintf("%*s", 10, "");
+	for (uint32_t i = 0; i < cols; ++i) {
+		cprintf("%02x ", i);
+	}
+	cprintf("\n");
+	for (uint32_t i = 0; i < 60; ++i) {
+		cprintf("-");
+	}
+	for (uint32_t i = start; i < end; ++i) {
+		if (!(i%cols)) {
+			cprintf("\n%04x: ", i);
+		}
+		cprintf("%02d ", pages[i].pp_ref);
+	}
+	cprintf("\n");
+	return 0;
+}
+// todo 加入字符串支持
+static void dump_mem(const uint8_t *base, uint32_t len)
+{
+	int cols = 16;
+	cprintf("%*s", 10, "");
+	for (uint32_t i = 0; i < cols; ++i) {
+		cprintf("%02x ", i);
+	}
+	cprintf("\n");
+	for (uint32_t i = 0; i < 60; ++i) {
+		cprintf("-");
+	}
+	for (uint32_t i = 0; i < len; ++i) {
+		if (!(i%cols)) {
+			cprintf("\n%08x: ", ((uint8_t *)base + i));
+		}
+		cprintf("%02x ", base[i]);
+	}
+	cprintf("\n");
+}
 
+int mon_dumppmem(int argc, char **argv, struct Trapframe *tf)
+{
+	// dumppmem <phys_addr> <len>
+	if (argc < 3) {
+		return -1;
+	}
+	physaddr_t phys_base = (uint32_t)strtol(argv[1], NULL, 16);
+	uint32_t len = strtol(argv[2], NULL, 10);
+	// 仅支持内核物理地址空间(内核逻辑地址可以通过简单的运算得到). 用户态需要去查找页表来决定, 暂不实现
+	// 在[0, 256MB)以外的空间不属于内核空间
+	physaddr_t phys_top = (~(0UL)) - KERNBASE;
+	if (phys_base > phys_top || (phys_base + len) > phys_top) {
+		cprintf("phys_addr >= 0x%x is not supported\n", phys_top);
+		return 0;
+	}
+	uint8_t *base = (void *)(phys_base + KERNBASE);
+	dump_mem(base, len);
+	return 0;
+}
+int mon_dumpvmem(int argc, char **argv, struct Trapframe *tf)
+{
+	// dumpvmem <base> <len> 
+	if (argc < 3) {
+		return -1;
+	}
+	uint8_t *base = (uint8_t *)(uint32_t)strtol(argv[1], NULL, 16);
+	uint32_t len = strtol(argv[2], NULL, 10);
+	dump_mem(base, len);
+	return 0;
+}
+
+int mon_setmem(int argc, char **argv, struct Trapframe *tf)
+{
+	// setmem <base> <len> <n>
+	if (argc < 4) {
+		return -1;
+	}
+	uint8_t *base = (uint8_t *)(uint32_t)strtol(argv[1], NULL, 16);
+	uint32_t len = strtol(argv[2], NULL, 10);
+	uint8_t n = strtol(argv[3], NULL, 10);
+	for (uint32_t i = 0; i < len; ++i) {
+		base[i] = n;
+	}
+	return 0;
+}
 /***** Kernel monitor command interpreter *****/
 
 #define WHITESPACE "\t\r\n "

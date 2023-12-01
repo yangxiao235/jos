@@ -552,20 +552,15 @@ static inline void pse_page_incref(struct Page *pp, int step)
 {
 	struct Page *end = pp + (PSE_PGSIZE>>PGSHIFT);
 	for (struct Page *p = pp; p < end; ++p) {
-		pp->pp_ref += step;
+		p->pp_ref += step;
 	}
 }
 
 int pse_page_insert(pde_t *pgdir, struct Page *pp, void *va, int perm)
 {
 	assert(pp);
-	pse_page_incref(pp, 1);
 	pse_page_remove(pgdir, va);
 	pde_t *pdep = pse_pgdir_walk(pgdir, va);
-	if (!pdep) {
-		pse_page_incref(pp, -1);
-		return -E_NO_MEM;
-	}
 	PTE_MAP_ADDR(*pdep, page2pa(pp));
 	*pdep = (*pdep & ~0x7) | (perm | PTE_PS |PTE_P);
 	return 0;

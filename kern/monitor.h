@@ -21,4 +21,11 @@ int mon_kerninfo(int argc, char **argv, struct Trapframe *tf);
 int mon_backtrace(int argc, char **argv, struct Trapframe *tf);
 int mon_pagetable(int argc, char **argv, struct Trapframe *tf);
 int mon_showmappings(int argc, char **argv, struct Trapframe *tf);
+int mon_chgmapping(int argc, char **argv, struct Trapframe *tf);
+int mon_dumppgtbl(int argc, char **argv, struct Trapframe *tf);
+int mon_dumppmem(int argc, char **argv, struct Trapframe *tf);
+int mon_dumpvmem(int argc, char **argv, struct Trapframe *tf);
+int mon_setmem(int argc, char **argv, struct Trapframe *tf);
+int mon_dumppgstru(int argc, char **argv, struct Trapframe *tf);
+
 #endif	// !JOS_KERN_MONITOR_H
